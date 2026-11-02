@@ -6,6 +6,7 @@ import java.time.format.DateTimeParseException;
 import java.util.List;
 import java.util.Map;
 
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -66,6 +67,13 @@ public class ChatController {
     @PostMapping("/conversations/{id}/read")
     public Map<String, Boolean> read(Principal me, @PathVariable String id) {
         chat.markRead(me.getName(), id);
+        return Map.of("ok", true);
+    }
+
+    /** "Delete chat" for the caller only; the other participant keeps the conversation. */
+    @DeleteMapping("/conversations/{id}")
+    public Map<String, Boolean> delete(Principal me, @PathVariable String id) {
+        chat.delete(me.getName(), id);
         return Map.of("ok", true);
     }
 
