@@ -34,6 +34,19 @@ public class Conversation {
     /** Plain counters (not a Map keyed by username) so atomic $inc works and usernames never become Mongo field names. */
     private int clientUnread;
     private int photographerUnread;
+    /** Per-user "delete chat": history before this instant is hidden for that user only. */
+    private Instant clientClearedAt;
+    private Instant photographerClearedAt;
+    private boolean clientHidden;
+    private boolean photographerHidden;
+
+    public Instant clearedAtFor(String username) {
+        return username.equals(clientUsername) ? clientClearedAt : photographerClearedAt;
+    }
+
+    public boolean hiddenFor(String username) {
+        return username.equals(clientUsername) ? clientHidden : photographerHidden;
+    }
 
     public boolean hasParticipant(String username) {
         return username != null && (username.equals(clientUsername) || username.equals(photographerUsername));
