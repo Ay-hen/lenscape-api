@@ -14,6 +14,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.data.mongodb.core.FindAndModifyOptions;
 import org.springframework.data.mongodb.core.MongoTemplate;
 import org.springframework.data.mongodb.core.query.Criteria;
 import org.springframework.data.mongodb.core.query.Query;
@@ -27,6 +28,7 @@ import photography.photography.chat.ChatDtos.ConversationView;
 import photography.photography.chat.ChatDtos.MessageView;
 import photography.photography.chat.ChatDtos.SendMessageRequest;
 import photography.photography.model.User;
+import photography.photography.notification.Notification;
 import photography.photography.notification.NotificationType;
 import photography.photography.notification.Notifier;
 import photography.photography.respository.ReservationRepo;
@@ -54,6 +56,9 @@ public class ChatService {
     /** Bookings of the new booking module also entitle a photographer to message their customer. Optional so the class stays easy to construct in tests. */
     @org.springframework.beans.factory.annotation.Autowired(required = false)
     private photography.photography.respository.BookingRepo bookingRepo;
+    /** Who has which chat open right now. Optional so the class stays easy to construct in tests. */
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private ChatPresence presence;
     private final MongoTemplate mongo;
     private final SimpMessagingTemplate ws;
     private final Notifier notifier;
@@ -95,7 +100,16 @@ public class ChatService {
 
         Conversation existing = conversations.findByClientUsernameAndPhotographerUsername(client.getUsername(), photographer.getUsername()).orElse(null);
         if (existing != null) {
-            return view(existing, latest(existing.getId()));
+            if (existing.hiddenFor(me)) { // re-opening a chat I deleted: it returns, without the old history
+                boolean iAmClient = me.equals(existing.getClientUsername());
+                mongo.updateFirst(Query.query(Criteria.where("_id").is(existing.getId())), new Update().set(iAmClient ? "clientHidden" : "photographerHidden", false), Conversation.class);
+                if (iAmClient) {
+                    existing.setClientHidden(false);
+                } else {
+                    existing.setPhotographerHidden(false);
+                }
+            }
+            return view(existing, latest(existing, me));
         }
         if (selfIsPhotographer && !reservations.existsByUserAndPhotographer(client, photographer)
                 && (bookingRepo == null || !bookingRepo.existsByCustomerIdAndPhotographerId(client.getUsername(), photographer.getUsername()))) {
@@ -113,10 +127,15 @@ public class ChatService {
     }
 
     public List<ConversationView> list(String me) {
-        List<Conversation> all = conversations.findByClientUsernameOrPhotographerUsernameOrderByUpdatedAtDesc(me, me);
         List<ConversationView> out = new ArrayList<>();
-        for (Conversation c : all.subList(0, Math.min(all.size(), 50))) {
-            out.add(view(c, latest(c.getId())));
+        for (Conversation c : conversations.findByClientUsernameOrPhotographerUsernameOrderByUpdatedAtDesc(me, me)) {
+            if (c.hiddenFor(me)) {
+                continue;
+            }
+            if (out.size() == 50) {
+                break;
+            }
+            out.add(view(c, latest(c, me)));
         }
         return out;
     }
@@ -130,6 +149,10 @@ public class ChatService {
                 : messages.findByConversationIdAndSentAtBeforeOrderBySentAtDesc(id, before, PageRequest.of(0, size));
         List<ChatMessage> asc = new ArrayList<>(page);
         Collections.reverse(asc);
+        Instant cleared = c.clearedAtFor(me);
+        if (cleared != null) {
+            asc.removeIf(m -> !m.getSentAt().isAfter(cleared));
+        }
         return view(c, asc);
     }
 
@@ -195,17 +218,26 @@ public class ChatService {
         }
 
         boolean recipientIsClient = recipient.getUsername().equals(c.getClientUsername());
-        mongo.updateFirst(Query.query(Criteria.where("_id").is(c.getId())),
-                new Update().set("lastMessageText", preview(text)).set("updatedAt", saved.getSentAt()).inc(recipientIsClient ? "clientUnread" : "photographerUnread", 1),
-                Conversation.class);
+        boolean viewing = presence != null && presence.isViewing(recipient.getUsername(), c.getId());
+        Update upd = new Update().set("lastMessageText", preview(text)).set("updatedAt", saved.getSentAt())
+                .set("clientHidden", false).set("photographerHidden", false); // a new message revives a deleted chat
+        if (!viewing) {
+            upd.inc(recipientIsClient ? "clientUnread" : "photographerUnread", 1); // viewing = read instantly, nothing to count
+        }
+        Conversation before = mongo.findAndModify(Query.query(Criteria.where("_id").is(c.getId())), upd,
+                FindAndModifyOptions.options().returnNew(false), Conversation.class);
+        int unreadBefore = before == null ? 0 : (recipientIsClient ? before.getClientUnread() : before.getPhotographerUnread());
         Conversation fresh = conversations.findById(c.getId()).orElse(c);
 
         ChatEvent event = new ChatEvent("message", c.getId(), toView(saved), unread(fresh), me, saved.getSentAt());
         ws.convertAndSendToUser(c.getClientUsername(), USER_QUEUE, event);
         ws.convertAndSendToUser(c.getPhotographerUsername(), USER_QUEUE, event);
 
-        notifier.notify(recipient.getUsername(), NotificationType.MESSAGE, "New message from " + displayName(sender), preview(text),
-                recipientIsClient ? "/account/messages" : "/studio/messages", "conversation:" + c.getId());
+        // Only the FIRST unread message of a burst notifies; nothing is raised while the recipient has the chat open.
+        if (!viewing && unreadBefore == 0) {
+            notifier.notify(recipient.getUsername(), NotificationType.MESSAGE, "New message from " + displayName(sender), preview(text),
+                    recipientIsClient ? "/account/messages" : "/studio/messages", "conversation:" + c.getId());
+        }
         return toView(saved);
     }
 
@@ -228,17 +260,54 @@ public class ChatService {
         Conversation c = participantConversation(me, conversationId);
         boolean iAmClient = me.equals(c.getClientUsername());
         mongo.updateFirst(Query.query(Criteria.where("_id").is(c.getId())), new Update().set(iAmClient ? "clientUnread" : "photographerUnread", 0), Conversation.class);
+        // reading the chat also closes its "new message" notification, so the next message can notify again
+        mongo.updateMulti(Query.query(Criteria.where("userId").is(me).and("groupKey").is("conversation:" + c.getId()).and("read").is(false)),
+                Update.update("read", true), Notification.class);
         Conversation fresh = conversations.findById(c.getId()).orElse(c);
         ChatEvent event = new ChatEvent("read", c.getId(), null, unread(fresh), me, Instant.now());
         ws.convertAndSendToUser(c.getClientUsername(), USER_QUEUE, event);
         ws.convertAndSendToUser(c.getPhotographerUsername(), USER_QUEUE, event);
     }
 
+    /** The client says which chat is open on screen (or that it no longer is). Opening it also marks it read. */
+    public void focus(String me, String sessionId, String conversationId, boolean active) {
+        if (conversationId == null || sessionId == null || presence == null) {
+            return;
+        }
+        Conversation c = participantConversation(me, conversationId);
+        presence.set(sessionId, me, active ? c.getId() : null);
+        if (active) {
+            markRead(me, c.getId());
+        }
+    }
+
+    /** "Delete chat" for ONE user. The other participant keeps everything; once both deleted, the data is purged. */
+    public void delete(String me, String id) {
+        Conversation c = participantConversation(me, id);
+        boolean iAmClient = me.equals(c.getClientUsername());
+        Instant now = Instant.now();
+        mongo.updateFirst(Query.query(Criteria.where("_id").is(c.getId())), new Update()
+                .set(iAmClient ? "clientHidden" : "photographerHidden", true)
+                .set(iAmClient ? "clientClearedAt" : "photographerClearedAt", now)
+                .set(iAmClient ? "clientUnread" : "photographerUnread", 0), Conversation.class);
+        mongo.remove(Query.query(Criteria.where("userId").is(me).and("groupKey").is("conversation:" + c.getId())), Notification.class);
+        Conversation fresh = conversations.findById(c.getId()).orElse(c);
+        if (fresh.isClientHidden() && fresh.isPhotographerHidden()) {
+            messages.deleteByConversationId(c.getId());
+            conversations.deleteById(c.getId());
+        }
+        ws.convertAndSendToUser(me, USER_QUEUE, new ChatEvent("deleted", c.getId(), null, null, me, now));
+    }
+
     // ------------------------------------------------------------------ helpers
 
-    private List<ChatMessage> latest(String conversationId) {
-        List<ChatMessage> page = new ArrayList<>(messages.findByConversationIdOrderBySentAtDesc(conversationId, PageRequest.of(0, PAGE)));
+    private List<ChatMessage> latest(Conversation c, String me) {
+        List<ChatMessage> page = new ArrayList<>(messages.findByConversationIdOrderBySentAtDesc(c.getId(), PageRequest.of(0, PAGE)));
         Collections.reverse(page);
+        Instant cleared = c.clearedAtFor(me);
+        if (cleared != null) {
+            page.removeIf(m -> !m.getSentAt().isAfter(cleared));
+        }
         return page;
     }
 
