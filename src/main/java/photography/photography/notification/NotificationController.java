@@ -5,6 +5,7 @@ import java.util.List;
 import java.util.Map;
 
 import org.springframework.http.HttpStatus;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -39,6 +40,20 @@ public class NotificationController {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Notification not found");
         }
         return Map.of("ok", true);
+    }
+
+    @DeleteMapping("/{id}")
+    public Map<String, Boolean> delete(Principal me, @PathVariable String id) {
+        if (!service.delete(me.getName(), id)) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Notification not found");
+        }
+        return Map.of("ok", true);
+    }
+
+    /** scope=all (default) or scope=read. */
+    @DeleteMapping
+    public Map<String, Long> clear(Principal me, @RequestParam(defaultValue = "all") String scope) {
+        return Map.of("deleted", service.clear(me.getName(), "read".equals(scope)));
     }
 
     @PostMapping("/read-all")
