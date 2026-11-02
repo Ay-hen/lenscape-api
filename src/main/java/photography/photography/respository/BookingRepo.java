@@ -19,6 +19,10 @@ public interface BookingRepo extends MongoRepository<Booking, String> {
 
     List<Booking> findByStatusInAndDateGreaterThanEqual(Collection<String> statuses, String date);
 
+    /** Bookings of one status whose date (YYYY-MM-DD) lies in [fromDate, toDate]. */
+    @org.springframework.data.mongodb.repository.Query("{ 'status': ?0, 'date': { $gte: ?1, $lte: ?2 } }")
+    List<Booking> findByStatusAndDateRange(String status, String fromDate, String toDate);
+
     boolean existsByCustomerIdAndPhotographerId(String customerId, String photographerId);
 
     boolean existsByCustomerIdAndPhotographerIdAndStatus(String customerId, String photographerId, String status);

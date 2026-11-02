@@ -39,6 +39,9 @@ public class AutomationRunner {
     private final Notifier notifier;
     private final PlatformClock clock;
     private final KeyedLock lock;
+    /** When the platform's own 24 h reminder is on, the photographer's "24" entry is skipped so nobody is reminded twice. */
+    @org.springframework.beans.factory.annotation.Value("${app.booking-reminder.enabled:false}")
+    private boolean platformReminder;
 
     public AutomationRunner(BookingRepo bookings, AutomationRepo automation, Notifier notifier, PlatformClock clock, KeyedLock lock) {
         this.bookings = bookings;
@@ -103,6 +106,9 @@ public class AutomationRunner {
             if (now.isBefore(start)) {
                 List<Integer> due = new ArrayList<>();
                 for (Integer h : a.getReminders().hoursBefore()) {
+                    if (platformReminder && Integer.valueOf(24).equals(h)) {
+                        continue;
+                    }
                     if (!now.isBefore(start.minus(Duration.ofHours(h))) && !has(b, "reminder_" + h)) {
                         due.add(h);
                     }
