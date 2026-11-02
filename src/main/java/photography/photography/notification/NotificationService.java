@@ -86,6 +86,19 @@ public class NotificationService {
         return mongo.updateFirst(Query.query(Criteria.where("_id").is(id).and("userId").is(user)), Update.update("read", true), Notification.class).getMatchedCount() > 0;
     }
 
+    public boolean delete(String user, String id) {
+        return mongo.remove(Query.query(Criteria.where("_id").is(id).and("userId").is(user)), Notification.class).getDeletedCount() > 0;
+    }
+
+    /** @param onlyRead true = remove only notifications already read */
+    public long clear(String user, boolean onlyRead) {
+        Criteria c = Criteria.where("userId").is(user);
+        if (onlyRead) {
+            c = c.and("read").is(true);
+        }
+        return mongo.remove(Query.query(c), Notification.class).getDeletedCount();
+    }
+
     public long markAllRead(String user) {
         return mongo.updateMulti(Query.query(Criteria.where("userId").is(user).and("read").is(false)), Update.update("read", true), Notification.class).getModifiedCount();
     }
