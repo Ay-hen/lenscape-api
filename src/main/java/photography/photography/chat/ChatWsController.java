@@ -7,10 +7,12 @@ import org.slf4j.LoggerFactory;
 import org.springframework.messaging.handler.annotation.MessageExceptionHandler;
 import org.springframework.messaging.handler.annotation.MessageMapping;
 import org.springframework.messaging.handler.annotation.Payload;
+import org.springframework.messaging.simp.SimpMessageHeaderAccessor;
 import org.springframework.messaging.simp.annotation.SendToUser;
 import org.springframework.stereotype.Controller;
 
 import photography.photography.chat.ChatDtos.ErrorEvent;
+import photography.photography.chat.ChatDtos.FocusRequest;
 import photography.photography.chat.ChatDtos.ReadRequest;
 import photography.photography.chat.ChatDtos.SendMessageRequest;
 import photography.photography.chat.ChatDtos.TypingRequest;
@@ -38,6 +40,14 @@ public class ChatWsController {
     @MessageMapping("/chat.read")
     public void read(@Payload ReadRequest request, Principal principal) {
         chat.markRead(requireUser(principal), request == null ? null : request.conversationId());
+    }
+
+    /** SEND /app/chat.focus  {conversationId, active}: which conversation is open on screen. Opening it also marks it read. */
+    @MessageMapping("/chat.focus")
+    public void focus(@Payload FocusRequest request, Principal principal, SimpMessageHeaderAccessor headers) {
+        if (request != null) {
+            chat.focus(requireUser(principal), headers.getSessionId(), request.conversationId(), request.active());
+        }
     }
 
     /** SEND /app/chat.typing  {conversationId, typing}. Relayed to the other participant only; nothing is stored. */
