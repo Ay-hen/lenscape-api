@@ -17,6 +17,10 @@ public final class ChatDtos {
     public record ReadRequest(String conversationId) {
     }
 
+    /** STOMP: SEND /app/chat.focus - "this conversation is open on my screen" (active=false: no longer). */
+    public record FocusRequest(String conversationId, boolean active) {
+    }
+
     /** STOMP: SEND /app/chat.typing */
     public record TypingRequest(String conversationId, boolean typing) {
     }
@@ -38,7 +42,7 @@ public final class ChatDtos {
     /**
      * Pushed on /user/queue/messages.
      * type = "message" (new message, also echoed to the sender as the delivery ack), "read" (the other side read the conversation),
-     * "typing" / "typing_stopped" (the other participant is, or stopped, typing - sent to the other participant only, never stored).
+     * "deleted" (I deleted the chat, sent to my own sessions), "typing" / "typing_stopped" (the other participant is, or stopped, typing - sent to the other participant only, never stored).
      */
     public record ChatEvent(String type, String conversationId, MessageView message, Map<String, Integer> unreadFor, String actor, Instant at) {
     }
