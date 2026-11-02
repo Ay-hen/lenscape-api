@@ -30,8 +30,10 @@ import photography.photography.model.Values.PromoCode;
 public class WorkspaceController {
     private final WorkspaceService workspace;
     private final AvailabilityService availability;
+    private final ProfileReminderService reminders;
 
-    public WorkspaceController(WorkspaceService workspace, AvailabilityService availability) {
+    public WorkspaceController(WorkspaceService workspace, AvailabilityService availability, ProfileReminderService reminders) {
+        this.reminders = reminders;
         this.workspace = workspace;
         this.availability = availability;
     }
@@ -44,6 +46,21 @@ public class WorkspaceController {
     @PutMapping
     public PhotographerProfile update(Principal me, @RequestBody ProfilePatch patch) {
         return workspace.updateProfile(me.getName(), patch);
+    }
+
+    @GetMapping("/completion")
+    public ProfileReminderService.CompletionView completion(Principal me) {
+        return reminders.status(me.getName());
+    }
+
+    @PostMapping("/completion/snooze")
+    public ProfileReminderService.CompletionView snoozeCompletion(Principal me) {
+        return reminders.snooze(me.getName());
+    }
+
+    @PostMapping("/completion/dismiss")
+    public ProfileReminderService.CompletionView dismissCompletion(Principal me) {
+        return reminders.dismiss(me.getName());
     }
 
     @PostMapping("/submit")

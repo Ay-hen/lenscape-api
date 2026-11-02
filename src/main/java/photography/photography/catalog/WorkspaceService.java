@@ -204,7 +204,10 @@ public class WorkspaceService {
             }
             p.setPublicLocation(new GeoPoint(Math.round(point.lat() * 1e6) / 1e6, Math.round(point.lng() * 1e6) / 1e6));
             String addr = shopAddress == null ? "" : shopAddress.trim();
-            p.setShopAddress(addr.isEmpty() ? null : Check.text(addr, "shopAddress", 0, 160));
+            if (addr.length() > 160) {
+                addr = addr.substring(0, 160).trim(); // reverse-geocoded addresses can be long: shorten instead of rejecting
+            }
+            p.setShopAddress(addr.isEmpty() ? null : addr);
         } else {
             p.setPublicLocation(Geo.approximate(Geo.CITY_COORDS.get(city), p.getId()));
             p.setShopAddress(null);
@@ -213,6 +216,9 @@ public class WorkspaceService {
         p.setWorkMode(workMode);
         p.setCity(city);
         p.setServiceRadiusKm(radiusKm);
+        if (p.getOnboardingStep() < 2) {
+            p.setOnboardingStep(2); // saving a location counts as completing the location step
+        }
         profiles.save(p);
         mongo.updateFirst(Query.query(Criteria.where("_id").is(username)), new Update().set("city", city), User.class);
         return p;
