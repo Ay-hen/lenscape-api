@@ -51,7 +51,7 @@ public class SecurityConfiguration {
                 .cors(Customizer.withDefaults())
                 .authorizeHttpRequests(req -> req
                         .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
-                        .requestMatchers("/user/auth/register", "/user/auth/login", "/user/auth/logout", "/auth/otp/verify", "/auth/otp/resend").permitAll()
+                        .requestMatchers("/user/auth/register", "/user/auth/login", "/user/auth/logout", "/auth/otp/verify", "/auth/otp/resend", "/auth/password/forgot", "/auth/password/reset").permitAll()
                         // The WebSocket HANDSHAKE is public because browsers cannot set an Authorization header on it.
                         // The STOMP CONNECT frame is authenticated in StompAuthChannelInterceptor.
                         .requestMatchers("/ws/**").permitAll()
