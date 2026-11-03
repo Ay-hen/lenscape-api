@@ -50,4 +50,26 @@ public class EmailServiceImpl implements EmailService {
                 + "\n\nIf you did not create an account, you can ignore this email.");
         mail.send(message);
     }
+
+    @Override
+    public void sendPasswordResetCode(String toEmail, String code, long validMinutes) {
+        if (logOnly) {
+            log.warn("DEV ONLY (app.mail.log-only): password reset code for {} is {}", toEmail, code);
+            return;
+        }
+        JavaMailSender mail = sender.getIfAvailable();
+        if (mail == null) {
+            throw new org.springframework.mail.MailSendException("No mail server configured (MAIL_USERNAME / MAIL_PASSWORD)");
+        }
+        SimpleMailMessage message = new SimpleMailMessage();
+        if (!from.isBlank()) {
+            message.setFrom(from);
+        }
+        message.setTo(toEmail);
+        message.setSubject(brand + " – reset your password");
+        message.setText("Your " + brand + " password reset code is: " + code
+                + "\n\nEnter it in the app together with your new password. The code expires in " + validMinutes + " minutes."
+                + "\n\nIf you did not ask to reset your password, you can ignore this email: your password has not been changed.");
+        mail.send(message);
+    }
 }
