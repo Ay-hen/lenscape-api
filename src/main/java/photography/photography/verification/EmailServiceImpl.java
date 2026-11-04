@@ -68,7 +68,7 @@ public class EmailServiceImpl implements EmailService {
         message.setTo(toEmail);
         message.setSubject(brand + " – reset your password");
         message.setText("Your " + brand + " password reset code is: " + code
-                + "\n\nEnter it in the app together with your new password. The code expires in " + validMinutes + " minutes."
+                + "\n\nEnter it on the password recovery page to continue. The code expires in " + validMinutes + " minutes and can be used once."
                 + "\n\nIf you did not ask to reset your password, you can ignore this email: your password has not been changed.");
         mail.send(message);
     }
